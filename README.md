@@ -3,9 +3,14 @@
 A DuckDB extension that reads passwords from an [age](https://age-encryption.org/)-encrypted JSON file and creates
 DuckDB secrets for PostgreSQL or MySQL connections — so credentials never live in plaintext on disk or in SQL history.
 
+This is based on the experimental Rust duckdb-template and is .. experimental...
+There may be better solutions out there, but I was curious on how this would work with Rust.
+Additionally, I also wanted to use something easy to work with from the command line, and the [rage](https://github.com/str4d/rage) tool seemed like a good idea at the time.
+
+
 ## How it works
 
-1. Store your database passwords in a JSON file and encrypt it with a [rage](https://github.com/str4d/rage) key pair.
+1. Store your database passwords in a JSON file and encrypt it with a  [rage](https://github.com/str4d/rage) key pair.
 2. Call `duck_rage(...)` from DuckDB — it decrypts the file, looks up the requested key, and runs
    `CREATE OR REPLACE SECRET duck_rage_<database>` in the current session.
 3. DuckDB's `postgres_scanner` or `mysql_scanner` will automatically use that secret for subsequent connections.
@@ -14,7 +19,7 @@ DuckDB secrets for PostgreSQL or MySQL connections — so credentials never live
 
 ### 1. Generate an age key pair
 
-```sh
+```bash
 rage-keygen -o ~/.config/duck-rage/identity.txt
 # Public key: age1...
 ```
@@ -23,7 +28,7 @@ Keep `identity.txt` private. Use the printed public key to encrypt your secrets.
 
 ### 2. Create and encrypt a secrets file
 
-```sh
+```bash
 echo '{"prod_password": "s3cr3t", "analytics_password": "hunter2"}' \
   | rage -r age1... -o secrets.age
 ```
@@ -36,7 +41,7 @@ A `flake.nix` is provided that pins all dependencies, including the exact DuckDB
 version (1.4.4), Rust stable toolchain, and `libstdc++.so.6` needed by the Python
 test runner wheel. This is the easiest path on NixOS or any system with Nix installed.
 
-```sh
+```bash
 nix develop          # enter the dev shell (first run downloads deps)
 make configure       # sets up Python venv with DuckDB test runner
 make debug           # builds the extension
@@ -65,18 +70,18 @@ Install the following manually:
 | [rage](https://github.com/str4d/rage) | `cargo install rage` or distro package |
 
 On Ubuntu/Debian:
-```sh
+```bash
 sudo apt install build-essential python3 python3-venv git pkg-config libssl-dev
 cargo install rage
 ```
 
 On macOS with Homebrew:
-```sh
+```bash
 brew install rust python make openssl rage
 ```
 
 Then build:
-```sh
+```bash
 make configure
 make debug
 ```
@@ -98,7 +103,7 @@ For an optimized release build, run `make release` instead of `make debug`.
 
 Start DuckDB with `-unsigned` to allow loading local extensions:
 
-```sh
+```bash
 duckdb -unsigned
 ```
 
@@ -142,19 +147,19 @@ Tests are written in SQLLogicTest format in `test/sql/duck_rage.test`.
 A self-contained test key pair and secrets file are committed under `test/data/`
 so no external setup is needed to run the tests.
 
-```shell
+```bashell
 make test_debug
 ```
 
 On NixOS / with Nix:
 
-```shell
+```bashell
 nix develop --command make test_debug
 ```
 
 For the release build:
 
-```shell
+```bashell
 make test_release
 ```
 
