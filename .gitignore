@@ -5,4 +5,8 @@ configure
 duckdb_unittest_tempdir
 /test/bin
 venv
+
+# Age-encrypted secrets — real credentials must never be committed.
+# Only the test fixtures in test/data/ are safe to commit (no real passwords).
 secrets.age
+identity.txt
