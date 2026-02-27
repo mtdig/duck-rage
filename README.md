@@ -1,116 +1,166 @@
-# DuckDB Rust extension template
-This is an **experimental** template for Rust based extensions based on the C Extension API of DuckDB. The goal is to
-turn this eventually into a stable basis for pure-Rust DuckDB extensions that can be submitted to the Community extensions
-repository
+# duck-rage
 
-Features:
-- No DuckDB build required
-- No C++ or C code required
-- CI/CD chain preconfigured
-- (Coming soon) Works with community extensions
+A DuckDB extension that reads passwords from an [age](https://age-encryption.org/)-encrypted JSON file and creates
+DuckDB secrets for PostgreSQL or MySQL connections — so credentials never live in plaintext on disk or in SQL history.
 
-## Cloning
+## How it works
 
-Clone the repo with submodules
+1. Store your database passwords in a JSON file and encrypt it with a [rage](https://github.com/str4d/rage) key pair.
+2. Call `duck_rage(...)` from DuckDB — it decrypts the file, looks up the requested key, and runs
+   `CREATE OR REPLACE SECRET duck_rage_<database>` in the current session.
+3. DuckDB's `postgres_scanner` or `mysql_scanner` will automatically use that secret for subsequent connections.
 
-```shell
-git clone --recurse-submodules <repo>
+## Setup
+
+### 1. Generate an age key pair
+
+```sh
+rage-keygen -o ~/.config/duck-rage/identity.txt
+# Public key: age1...
 ```
 
-## Dependencies
-In principle, these extensions can be compiled with the Rust toolchain alone. However, this template relies on some additional
-tooling to make life a little easier and to be able to share CI/CD infrastructure with extension templates for other languages:
+Keep `identity.txt` private. Use the printed public key to encrypt your secrets.
 
-- Python3
-- Python3-venv
-- [Make](https://www.gnu.org/software/make)
-- Git
+### 2. Create and encrypt a secrets file
 
-Installing these dependencies will vary per platform:
-- For Linux, these come generally pre-installed or are available through the distro-specific package manager.
-- For MacOS, [homebrew](https://formulae.brew.sh/).
-- For Windows, [chocolatey](https://community.chocolatey.org/).
+```sh
+echo '{"prod_password": "s3cr3t", "analytics_password": "hunter2"}' \
+  | rage -r age1... -o secrets.age
+```
 
 ## Building
-After installing the dependencies, building is a two-step process. Firstly run:
-```shell
-make configure
-```
-This will ensure a Python venv is set up with DuckDB and DuckDB's test runner installed. Additionally, depending on configuration,
-DuckDB will be used to determine the correct platform for which you are compiling.
 
-Then, to build the extension run:
-```shell
+### With Nix (recommended)
+
+A `flake.nix` is provided that pins all dependencies, including the exact DuckDB
+version (1.4.4), Rust stable toolchain, and `libstdc++.so.6` needed by the Python
+test runner wheel. This is the easiest path on NixOS or any system with Nix installed.
+
+```sh
+nix develop          # enter the dev shell (first run downloads deps)
+make configure       # sets up Python venv with DuckDB test runner
+make debug           # builds the extension
+```
+
+The dev shell provides:
+- Rust stable toolchain
+- Python 3 with pip (the Makefile pip-installs `duckdb==1.4.4` into a venv)
+- DuckDB 1.4.4 CLI
+- gcc / `libstdc++.so.6` (required by the pip DuckDB wheel)
+- make, pkg-config, openssl, git, rage
+
+Every subsequent session just needs `nix develop` before running make targets.
+
+### Without Nix
+
+Install the following manually:
+
+| Dependency | Notes |
+|---|---|
+| [Rust](https://rustup.rs) stable | `rustup install stable` |
+| Python 3 + venv | distro package or [python.org](https://python.org) |
+| Make | pre-installed on most Linux/macOS |
+| Git | pre-installed on most systems |
+| `libstdc++` | usually part of `gcc` / `g++` / `libstdc++-dev` |
+| [rage](https://github.com/str4d/rage) | `cargo install rage` or distro package |
+
+On Ubuntu/Debian:
+```sh
+sudo apt install build-essential python3 python3-venv git pkg-config libssl-dev
+cargo install rage
+```
+
+On macOS with Homebrew:
+```sh
+brew install rust python make openssl rage
+```
+
+Then build:
+```sh
+make configure
 make debug
 ```
-This delegates the build process to cargo, which will produce a shared library in `target/debug/<shared_lib_name>`. After this step,
-a script is run to transform the shared library into a loadable extension by appending a binary footer. The resulting extension is written
-to the `build/debug` directory.
 
-To create optimized release binaries, simply run `make release` instead.
+> **Note**: The `make configure` step pip-installs `duckdb==1.4.4` into a local
+> venv. If the pip wheel fails to load with `ImportError: libstdc++.so.6`, make
+> sure `libstdc++` is on your `LD_LIBRARY_PATH` — or use the Nix path above.
 
-### Running the extension
-To run the extension code, start `duckdb` with `-unsigned` flag. This will allow you to load the local extension file.
+### Output
+
+The extension is written to:
+```
+build/debug/extension/duck_rage/duck_rage.duckdb_extension
+```
+
+For an optimized release build, run `make release` instead of `make debug`.
+
+## Running the extension
+
+Start DuckDB with `-unsigned` to allow loading local extensions:
 
 ```sh
 duckdb -unsigned
 ```
 
-After loading the extension by the file path, you can use the functions provided by the extension (in this case, `rusty_quack()`).
+Load the extension and call `duck_rage`:
 
 ```sql
-LOAD './build/debug/extension/rusty_quack/rusty_quack.duckdb_extension';
-SELECT * FROM rusty_quack('Jane');
+LOAD './build/debug/extension/duck_rage/duck_rage.duckdb_extension';
+
+SELECT * FROM duck_rage(
+    'postgres',                                    -- db_type: 'postgres' or 'mysql'
+    'localhost',                                   -- host
+    5432,                                          -- port
+    'mydb',                                        -- database
+    'myuser',                                      -- user
+    '/path/to/secrets.age',                        -- age-encrypted JSON secrets file
+    'prod_password',                               -- JSON key whose value is the password
+    '/home/you/.config/duck-rage/identity.txt'     -- age identity file (private key)
+);
 ```
 
 ```
-┌─────────────────────┐
-│       column0       │
-│       varchar       │
-├─────────────────────┤
-│ Rusty Quack Jane 🐥 │
-└─────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                       status                                   │
+│                       varchar                                  │
+├────────────────────────────────────────────────────────────────┤
+│ Secret 'duck_rage_mydb' created for myuser@localhost:5432/mydb │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Then use the secret transparently:
+
+```sql
+INSTALL postgres_scanner;
+LOAD postgres_scanner;
+SELECT * FROM postgres_scan('', 'public', 'my_table');
 ```
 
 ## Testing
-This extension uses the DuckDB Python client for testing. This should be automatically installed in the `make configure` step.
-The tests themselves are written in the SQLLogicTest format, just like most of DuckDB's tests. A sample test can be found in
-`test/sql/<extension_name>.test`. To run the tests using the *debug* build:
+
+Tests are written in SQLLogicTest format in `test/sql/duck_rage.test`.
+A self-contained test key pair and secrets file are committed under `test/data/`
+so no external setup is needed to run the tests.
 
 ```shell
 make test_debug
 ```
 
-or for the *release* build:
+On NixOS / with Nix:
+
+```shell
+nix develop --command make test_debug
+```
+
+For the release build:
+
 ```shell
 make test_release
 ```
 
-### Version switching
-Testing with different DuckDB versions is really simple:
+## Dependencies
 
-First, run
-```
-make clean_all
-```
-to ensure the previous `make configure` step is deleted.
-
-Then, run
-```
-DUCKDB_TEST_VERSION=v1.3.2 make configure
-```
-to select a different duckdb version to test with
-
-Finally, build and test with
-```
-make debug
-make test_debug
-```
-
-### Known issues
-This is a bit of a footgun, but the extensions produced by this template may (or may not) be broken on windows on python3.11
-with the following error on extension load:
-```shell
-IO Error: Extension '<name>.duckdb_extension' could not be loaded: The specified module could not be found
-```
-This was resolved by using python 3.12
+- Python3 + venv
+- [Make](https://www.gnu.org/software/make)
+- Git
+- [rage](https://github.com/str4d/rage) (`rage-keygen`, `rage`) for key generation and encryption

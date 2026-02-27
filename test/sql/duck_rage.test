@@ -1,0 +1,36 @@
+# name: test/sql/duck_rage.test
+# description: test duck_rage extension
+# group: [duck_rage]
+
+# Before we load the extension, this will fail
+statement error
+SELECT * FROM duck_rage('postgres', 'localhost', 5432, 'mydb', 'myuser', 'test/data/test_secrets.age', 'test_password', 'test/data/test_identity.txt');
+----
+Catalog Error: Table Function with name duck_rage does not exist!
+
+# Require statement will ensure the extension is loaded from now on
+require duck_rage
+
+# Wrong number of arguments produces a helpful arity error
+statement error
+SELECT * FROM duck_rage('postgres', 'localhost', 5432, 'mydb', 'myuser');
+----
+No function matches the given name and argument types
+
+# Unknown db_type produces a clear error
+statement error
+SELECT * FROM duck_rage('oracle', 'localhost', 5432, 'mydb', 'myuser', 'test/data/test_secrets.age', 'test_password', 'test/data/test_identity.txt');
+----
+Unknown db_type 'oracle'. Supported: postgres, mysql
+
+# Missing secrets file produces a clear error
+statement error
+SELECT * FROM duck_rage('postgres', 'localhost', 5432, 'mydb', 'myuser', '/nonexistent/secrets.age', 'test_password', 'test/data/test_identity.txt');
+----
+Cannot read secrets file '/nonexistent/secrets.age'
+
+# Missing JSON key produces a clear error
+statement error
+SELECT * FROM duck_rage('postgres', 'localhost', 5432, 'mydb', 'myuser', 'test/data/test_secrets.age', 'no_such_key', 'test/data/test_identity.txt');
+----
+Key 'no_such_key' not found in secrets file

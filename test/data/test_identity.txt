@@ -1,0 +1,4 @@
+# created: 2026-02-27T20:28:47+01:00
+# public key: age1gmg3sdg2cl4v8q2hjne4gsyypgdcnlr5v84ejx57j5s2dhn0psws3pupxq
+# TEST KEY ONLY — not used for real secrets, safe to commit
+AGE-SECRET-KEY-1FGGXGX36QSJXFA6VWTHWG4GRDW88PHU3SCYQKPQQ2HAKNEW455YQUFUQA8
