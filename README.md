@@ -32,7 +32,7 @@ Keep `identity.txt` private. Use the printed public key to encrypt your secrets.
 ### 2. Create and encrypt a secrets file
 
 ```bash
-echo '{"prod_password": "s3cr3t", "analytics_password": "hunter2"}' \
+echo '{"appuser": "s3cr3t", "admin": "Xq7#mK2$vL9@nR4!"}' \
   | rage -r age1... -o secrets.age
 ```
 
@@ -122,7 +122,7 @@ SELECT * FROM duck_rage(
     5432,                                          -- port
     'mydb',                                        -- database
     'myuser',                                      -- user
-    'prod_password'                                -- JSON key whose value is the password we're looking for
+    'appuser'                                -- JSON key whose value is the password we're looking for
 );
 
 -- With explicit secrets_file and identity_file (named parameters)
@@ -132,7 +132,7 @@ SELECT * FROM duck_rage(
     5432,
     'mydb',
     'myuser',
-    'prod_password',
+    'appuser',
     secrets_file => '/path/to/secrets.age',
     identity_file => '/home/you/.config/duck-rage/identity.txt'
 );
