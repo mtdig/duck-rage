@@ -350,6 +350,7 @@ fn escape_sql_string(s: &str) -> String {
 const EXTENSION_NAME: &str = env!("CARGO_PKG_NAME");
 const ANSI_DARK_YELLOW: &str = "\x1b[38;2;184;134;11m";
 const ANSI_RESET: &str = "\x1b[0m";
+const GITHUB_URL: &str = "https://github.com/mtdig/duck-rage/";
 
 #[duckdb_entrypoint_c_api()]
 pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>> {
@@ -360,7 +361,8 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
         .expect("Failed to register duck_rage table function");
     
     // Display extension info message
-    let info_msg = "** An experimental minimal extension that reads secrets from age encrypted store and creates session-limited SECRET for mysql and postgresql (https://github.com/mtdig/duck-rage/) **";
+    let version = env!("CARGO_PKG_VERSION");
+    let info_msg = format!("** duck-rage v{version} - An experimental minimal extension that reads secrets from age encrypted store and creates session-limited SECRET for mysql and postgresql ({GITHUB_URL}) **");
     eprintln!("{ANSI_DARK_YELLOW}{info_msg}{ANSI_RESET}");
     
     Ok(())
