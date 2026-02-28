@@ -228,7 +228,7 @@ fn execute_sql_on_current_db(sql: &str) -> std::result::Result<(), Box<dyn Error
 ///   `rage-keygen -o ~/.config/duck-rage/identity.txt`
 ///
 /// Encrypt your secrets with the public key:
-///   `echo '{"db_password": "hunter2"}' | rage -r age1... -o secrets.age`
+///   `echo '{"appuser": "übersecret"}' | rage -r age1... -o secrets.age`
 fn decrypt_age_file(
     path: &str,
     key: &str,
@@ -294,5 +294,10 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
 
     con.register_table_function::<RageVTab>(EXTENSION_NAME)
         .expect("Failed to register duck_rage table function");
+    
+    // Display extension info message
+    let info_msg = "** An experimental minimal extension that reads secrets from age encrypted store and creates session-limited SECRET for mysql and postgresql (https://github.com/mtdig/duck-rage/) **";
+    eprintln!("{}", info_msg);
+    
     Ok(())
 }
