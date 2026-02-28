@@ -4,7 +4,10 @@ A DuckDB extension that reads passwords from an [age](https://age-encryption.org
 DuckDB secrets (connection string with user, host, port, password, db) for PostgreSQL or MySQL connections — so credentials never live in plaintext on disk or in SQL history.
 
 This is based on the experimental [Rust duckdb-template](https://github.com/duckdb/extension-template-rs/) and is .. experimental...
+
 There may be better solutions out there, but I was curious on how this would work with Rust.
+Honestly, I was expecting a lot more friction between C++ and Rust, but with the great example and simplified template, it was definitely a much easier experience than my first encounters with writing duckdb extensions.
+
 Additionally, I also wanted to use something easy to work with from the command line, and the [rage](https://github.com/str4d/rage) tool seemed like a good idea at the time.
 
 Refer to the excellent DuckDB documentation for the [postgres](https://duckdb.org/docs/stable/core_extensions/postgres) and [mysql](https://duckdb.org/docs/stable/core_extensions/mysql) extensions.
