@@ -1,4 +1,4 @@
-# duck-rage
+# <img src="img/friendly_raging_duck.png" width="60" height="60" style="float: none;" /> duck-rage  
 
 A DuckDB extension that reads passwords from an [age](https://age-encryption.org/)-encrypted JSON file and creates
 DuckDB secrets for PostgreSQL or MySQL connections — so credentials never live in plaintext on disk or in SQL history.
