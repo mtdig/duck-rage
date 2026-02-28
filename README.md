@@ -1,19 +1,22 @@
 # <img src="img/friendly_raging_duck.png" width="150" height="150" style="float: none;" /> duck-rage  
 
 A DuckDB extension that reads passwords from an [age](https://age-encryption.org/)-encrypted JSON file and creates
-DuckDB secrets for PostgreSQL or MySQL connections — so credentials never live in plaintext on disk or in SQL history.
+DuckDB secrets (connection string with user, host, port, password, db) for PostgreSQL or MySQL connections — so credentials never live in plaintext on disk or in SQL history.
 
-This is based on the experimental Rust duckdb-template and is .. experimental...
+This is based on the experimental [Rust duckdb-template](https://github.com/duckdb/extension-template-rs/) and is .. experimental...
 There may be better solutions out there, but I was curious on how this would work with Rust.
 Additionally, I also wanted to use something easy to work with from the command line, and the [rage](https://github.com/str4d/rage) tool seemed like a good idea at the time.
+
+Refer to the excellent DuckDB documentation for the [postgres](https://duckdb.org/docs/stable/core_extensions/postgres) and [mysql](https://duckdb.org/docs/stable/core_extensions/mysql) extensions.
 
 
 ## How it works
 
 1. Store your database passwords in a JSON file and encrypt it with a  [rage](https://github.com/str4d/rage) key pair.
 2. Call `duck_rage(...)` from DuckDB — it decrypts the file, looks up the requested key, and runs
-   `CREATE OR REPLACE SECRET duck_rage_<database>` in the current session.
-3. DuckDB's `postgres_scanner` or `mysql_scanner` will automatically use that secret for subsequent connections.
+   `CREATE OR REPLACE SECRET duck_rage_<database>` in the current session.  The secret will be named 'duck_rage_<DBNAME>'.
+3. DuckDB's `postgres_scanner` or `mysql_scanner` can use secrets automatically, but in this case, it's a named secret, so just pass the secret name into the ATTACH statement.
+
 
 ## Setup
 
@@ -42,7 +45,7 @@ version (1.4.4), Rust stable toolchain, and `libstdc++.so.6` needed by the Pytho
 test runner wheel. This is the easiest path on NixOS or any system with Nix installed.
 
 ```bash
-nix develop          # enter the dev shell (first run downloads deps)
+nix develop          # enter the dev shell (first run will download deps)
 make configure       # sets up Python venv with DuckDB test runner
 make debug           # builds the extension
 ```
@@ -112,19 +115,55 @@ Load the extension and call `duck_rage`:
 ```sql
 LOAD './build/debug/extension/duck_rage/duck_rage.duckdb_extension';
 
+-- Minimal usage: relies on default paths or environment variables
 SELECT * FROM duck_rage(
     'postgres',                                    -- db_type: 'postgres' or 'mysql'
     'localhost',                                   -- host
     5432,                                          -- port
     'mydb',                                        -- database
     'myuser',                                      -- user
-    '/path/to/secrets.age',                        -- age-encrypted JSON secrets file
-    'prod_password',                               -- JSON key whose value is the password
-    '/home/you/.config/duck-rage/identity.txt'     -- age identity file (private key)
+    'prod_password'                                -- JSON key whose value is the password we're looking for
+);
+
+-- With explicit secrets_file and identity_file (named parameters)
+SELECT * FROM duck_rage(
+    'postgres',
+    'localhost',
+    5432,
+    'mydb',
+    'myuser',
+    'prod_password',
+    secrets_file => '/path/to/secrets.age',
+    identity_file => '/home/you/.config/duck-rage/identity.txt'
 );
 ```
 
+### File Resolution
+
+Both `secrets_file` and `identity_file` are optional named parameters with automatic fallbacks:
+
+#### Secrets File Resolution
+1. **Named parameter** `secrets_file` (if provided)
+2. **Environment variable** `RAGE_SECRETS_FILE`
+3. **Default path** `~/.config/duck-rage/secrets.age`
+
+#### Identity File Resolution
+1. **Named parameter** `identity_file` (if provided)
+2. **Environment variable** `RAGE_IDENTITY_FILE`
+3. **Default path** `~/.config/duck-rage/identity.txt`
+
+Example using environment variables:
+
+```bash
+export RAGE_SECRETS_FILE=~/.config/duck-rage/secrets.age
+export RAGE_IDENTITY_FILE=~/.config/duck-rage/identity.txt
+duckdb -unsigned
 ```
+
+Then in DuckDB, you only need to specify the connection details and secret key:
+
+```sql
+SELECT * FROM duck_rage('mysql', '192.168.56.20', 3306, 'appdb', 'appuser', 'appuser');
 ┌────────────────────────────────────────────────────────────────┐
 │                       status                                   │
 │                       varchar                                  │
@@ -133,13 +172,15 @@ SELECT * FROM duck_rage(
 └────────────────────────────────────────────────────────────────┘
 ```
 
-Then use the secret transparently:
+Then use the secret to attach the db:
+
 
 ```sql
-INSTALL postgres_scanner;
-LOAD postgres_scanner;
-SELECT * FROM postgres_scan('', 'public', 'my_table');
+INSTALL mysql;
+LOAD mysql;
+ATTACH '' AS appdb (TYPE mysql, SECRET duck_rage_appdb);
 ```
+
 
 ## Testing
 

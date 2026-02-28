@@ -5,6 +5,7 @@ use duckdb::{
     Connection, Result,
 };
 use std::{
+    env,
     error::Error,
     ffi::CString,
     io::Read,
@@ -130,9 +131,9 @@ impl VTab for RageVTab {
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
         bind.add_result_column("status", LogicalTypeHandle::from(LogicalTypeId::Varchar));
 
-        // All parameters are positional and required:
-        //   db_type, host, port, database, user, secrets_file, secret_key, identity_file
-        const USAGE: &str = "Usage: duck_rage(\n  db_type      VARCHAR  -- 'postgres' or 'mysql'\n  host         VARCHAR  -- hostname or IP\n  port         INTEGER  -- e.g. 5432\n  database     VARCHAR  -- database name\n  user         VARCHAR  -- login user\n  secrets_file VARCHAR  -- path to age-encrypted JSON file\n  secret_key   VARCHAR  -- JSON key whose value is the password\n  identity_file VARCHAR -- path to age identity file (rage-keygen output)\n)";
+        // First 5 parameters are positional and required
+        // secrets_file and identity_file are optional named parameters
+        const USAGE: &str = "Usage: duck_rage(\n  db_type       VARCHAR  -- 'postgres' or 'mysql'\n  host          VARCHAR  -- hostname or IP\n  port          INTEGER  -- e.g. 5432 or 3306\n  database      VARCHAR  -- database name\n  user          VARCHAR  -- login user\n  secret_key    VARCHAR  -- JSON key whose value is the password we're looking for\n  secrets_file  VARCHAR  -- (optional named) path to age-encrypted JSON file; falls back to RAGE_SECRETS_FILE env var or ~/.config/duck-rage/secrets.age\n  identity_file VARCHAR  -- (optional named) path to age identity file; falls back to RAGE_IDENTITY_FILE env var or ~/.config/duck-rage/identity.txt\n)";
 
         let db_type: DbType = bind.get_parameter(0).to_string().parse()
             .map_err(|e| format!("{e}\n\n{USAGE}"))?;
@@ -141,12 +142,22 @@ impl VTab for RageVTab {
             .map_err(|_| format!("Invalid port '{}': must be an integer\n\n{USAGE}", bind.get_parameter(2)))?;
         let database      = bind.get_parameter(3).to_string();
         let user          = bind.get_parameter(4).to_string();
-        let secrets_file  = bind.get_parameter(5).to_string();
-        let secret_key    = bind.get_parameter(6).to_string();
-        let identity_file = bind.get_parameter(7).to_string();
+        let secret_key    = bind.get_parameter(5).to_string();
+        
+        // Get optional named parameters
+        let secrets_file_param = bind.get_named_parameter("secrets_file")
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let identity_file_param = bind.get_named_parameter("identity_file")
+            .map(|v| v.to_string())
+            .unwrap_or_default();
 
         let provider = db_type.provider();
 
+        let secrets_file = resolve_secrets_file(&secrets_file_param)
+            .map_err(|e| format!("{e}\n\n{USAGE}"))?;
+        let identity_file = resolve_identity_file(&identity_file_param)
+            .map_err(|e| format!("{e}\n\n{USAGE}"))?;
         let password = decrypt_age_file(&secrets_file, &secret_key, &identity_file)
             .map_err(|e| format!("{e}\n\n{USAGE}"))?;
         let create_secret_sql =
@@ -198,9 +209,14 @@ impl VTab for RageVTab {
             LogicalTypeHandle::from(LogicalTypeId::Integer), // port
             LogicalTypeHandle::from(LogicalTypeId::Varchar), // database
             LogicalTypeHandle::from(LogicalTypeId::Varchar), // user
-            LogicalTypeHandle::from(LogicalTypeId::Varchar), // secrets_file  (path to .age file)
             LogicalTypeHandle::from(LogicalTypeId::Varchar), // secret_key    (JSON key)
-            LogicalTypeHandle::from(LogicalTypeId::Varchar), // identity_file (path to age key)
+        ])
+    }
+
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![
+            ("secrets_file".to_string(), LogicalTypeHandle::from(LogicalTypeId::Varchar)),
+            ("identity_file".to_string(), LogicalTypeHandle::from(LogicalTypeId::Varchar)),
         ])
     }
 }
@@ -220,6 +236,52 @@ fn execute_sql_on_current_db(sql: &str) -> std::result::Result<(), Box<dyn Error
 // ---------------------------------------------------------------------------
 // Age decryption helper
 // ---------------------------------------------------------------------------
+
+/// Resolves the secrets file path using the following fallback chain:
+/// 1. Explicit parameter (if non-empty)
+/// 2. RAGE_SECRETS_FILE environment variable
+/// 3. Default path: ~/.config/duck-rage/secrets.age
+fn resolve_secrets_file(param: &str) -> std::result::Result<String, Box<dyn Error>> {
+    // 1. Use explicit parameter if provided and non-empty
+    if !param.is_empty() {
+        return Ok(param.to_string());
+    }
+
+    // 2. Check environment variable
+    if let Ok(env_path) = env::var("RAGE_SECRETS_FILE") {
+        if !env_path.is_empty() {
+            return Ok(env_path);
+        }
+    }
+
+    // 3. Use default path
+    let home = env::var("HOME")
+        .map_err(|_| "Cannot determine HOME directory and no secrets file specified")?;
+    Ok(format!("{}/.config/duck-rage/secrets.age", home))
+}
+
+/// Resolves the identity file path using the following fallback chain:
+/// 1. Explicit parameter (if non-empty)
+/// 2. RAGE_IDENTITY_FILE environment variable
+/// 3. Default path: ~/.config/duck-rage/identity.txt
+fn resolve_identity_file(param: &str) -> std::result::Result<String, Box<dyn Error>> {
+    // 1. Use explicit parameter if provided and non-empty
+    if !param.is_empty() {
+        return Ok(param.to_string());
+    }
+
+    // 2. Check environment variable
+    if let Ok(env_path) = env::var("RAGE_IDENTITY_FILE") {
+        if !env_path.is_empty() {
+            return Ok(env_path);
+        }
+    }
+
+    // 3. Use default path
+    let home = env::var("HOME")
+        .map_err(|_| "Cannot determine HOME directory and no identity file specified")?;
+    Ok(format!("{}/.config/duck-rage/identity.txt", home))
+}
 
 /// Decrypts an age file using an X25519 identity file, parses the contents
 /// as JSON, and returns the string value for `key`.
@@ -286,6 +348,8 @@ fn escape_sql_string(s: &str) -> String {
 // ---------------------------------------------------------------------------
 
 const EXTENSION_NAME: &str = env!("CARGO_PKG_NAME");
+const ANSI_DARK_YELLOW: &str = "\x1b[38;2;184;134;11m";
+const ANSI_RESET: &str = "\x1b[0m";
 
 #[duckdb_entrypoint_c_api()]
 pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>> {
@@ -297,7 +361,7 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     
     // Display extension info message
     let info_msg = "** An experimental minimal extension that reads secrets from age encrypted store and creates session-limited SECRET for mysql and postgresql (https://github.com/mtdig/duck-rage/) **";
-    eprintln!("{}", info_msg);
+    eprintln!("{ANSI_DARK_YELLOW}{info_msg}{ANSI_RESET}");
     
     Ok(())
 }

@@ -7,8 +7,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [profile.release]
+opt-level = 3
 lto = true
 strip = true
+codegen-units = 1
 
 [[example]]
 # crate-type can't be (at the moment) be overriden for specific targets
